@@ -164,3 +164,49 @@ export const remove = mutation({
     });
   },
 });
+
+export const setVisibility = mutation({
+  args: {
+    id: v.id("models"),
+    visible: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) {
+      throw new Error("Must be authenticated");
+    }
+
+    const model = await ctx.db.get(args.id);
+    if (!model) {
+      throw new Error("Model not found");
+    }
+
+    const project = await ctx.db.get(model.projectId);
+    if (!project) {
+      throw new Error("Project not found");
+    }
+
+    const membership = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace_and_user", (q) =>
+        q.eq("workspaceId", project.workspaceId).eq("userId", user._id)
+      )
+      .unique();
+
+    if (!membership || membership.role === "viewer") {
+      throw new Error("Insufficient permissions");
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(args.id, {
+      visible: args.visible,
+      lastModified: now,
+      lastModifiedBy: user._id,
+    });
+
+    await ctx.db.patch(model.projectId, {
+      lastModified: now,
+      lastModifiedBy: user._id,
+    });
+  },
+});
